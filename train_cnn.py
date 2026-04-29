@@ -32,6 +32,9 @@ target_cols = ["Gmax_dBi", "S11_dB", "thetaMain_deg"]
 
 # Check that columns exist
 print("Columns found in CSV:", df.columns.tolist())
+missing_cols = [col for col in ["filename"] + target_cols if col not in df.columns]
+if missing_cols:
+    raise ValueError(f"Missing columns in CSV: {missing_cols}")
 
 # Extract filenames and targets
 filenames = df["filename"].values
@@ -101,7 +104,6 @@ y_std_safe = np.where(y_std == 0, 1.0, y_std)
 # Standardize
 y_train_std = (y_train - y_mean) / y_std_safe
 y_val_std   = (y_val   - y_mean) / y_std_safe
-y_test_std  = (y_test  - y_mean) / y_std_safe
 
 
 # Define CNN model
@@ -123,20 +125,19 @@ def build_cnn_model(input_shape=(128, 128, 1)):
     x = layers.Activation("relu")(x)
     x = layers.MaxPooling2D((2, 2))(x)
 
-    x = layers.Flatten()(x)
+    # Keeps the model image-only/CNN-based and avoids a large Flatten layer
+    x = layers.GlobalAveragePooling2D()(x)
 
     x = layers.Dense(
         128,
         activation="relu",
         kernel_regularizer=regularizers.l2(1e-4)
     )(x)
-
     x = layers.Dropout(0.20)(x)
 
     outputs = layers.Dense(3, activation="linear")(x)
 
-    model = models.Model(inputs=inputs, outputs=outputs)
-    return model
+    return models.Model(inputs, outputs)
 
 
 model = build_cnn_model(input_shape=(IMG_SIZE[0], IMG_SIZE[1], 1))
@@ -157,7 +158,7 @@ model.compile(
 # Callbacks
 early_stop = callbacks.EarlyStopping(
     monitor="val_loss",
-    patience=8,
+    patience=12,
     restore_best_weights=True
 )
 
@@ -170,7 +171,7 @@ checkpoint = callbacks.ModelCheckpoint(
 lr_scheduler = callbacks.ReduceLROnPlateau(
     monitor="val_loss",
     factor=0.5,
-    patience=5,
+    patience=4,
     min_lr=1e-6,
     verbose=1
 )
@@ -210,7 +211,7 @@ plt.close()
 # Evaluate on test set
 
 # Predict standardized outputs
-y_test_pred_std = model.predict(X_test)
+y_test_pred_std = model.predict(X_test, verbose=0)
 
 # De-standardize
 y_test_pred = y_test_pred_std * y_std_safe + y_mean
@@ -220,6 +221,15 @@ mae_per_output = np.mean(np.abs(y_test_pred - y_test), axis=0)
 
 for name, mae_val in zip(target_cols, mae_per_output):
     print(f"Test MAE for {name}: {mae_val:.3f}")
+
+# Save predictions for checking individual test examples
+results_df = pd.DataFrame()
+for i, name in enumerate(target_cols):
+    results_df[f"true_{name}"] = y_test[:, i]
+    results_df[f"pred_{name}"] = y_test_pred[:, i]
+    results_df[f"abs_error_{name}"] = np.abs(y_test_pred[:, i] - y_test[:, i])
+
+results_df.to_csv("test_predictions.csv", index=False)
 
 pretty_names = {
     "Gmax_dBi": "Maximum Gain (dBi)",
@@ -247,4 +257,4 @@ for i, name in enumerate(target_cols):
     plt.savefig(f"scatter_{name}.png")
     plt.close()
 
-print("Done. Check 'training_loss.png' and 'scatter_*.png' for results.")
+print("Done. Check 'training_loss.png', 'scatter_*.png', and 'test_predictions.csv' for results.")
