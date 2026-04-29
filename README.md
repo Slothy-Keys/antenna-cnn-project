@@ -20,6 +20,15 @@ To use the predict_new_antenna file ensure that the patch antenna is 128x128, gr
 
 ## How to run
 
+Install Anaconda
+Open anaconda prompt
+Create your environment
+>conda create -n antenna_cnn python=3.10
+Enter environment
+>conda activate antenna_cnn
+Install packages
+>pip install tensorflow numpy matplotlib pandas scikit-learn opencv-python pillow jupyter
+
 Train:
 python train_cnn_main.py
 
