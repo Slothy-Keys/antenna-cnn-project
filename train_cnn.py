@@ -27,8 +27,24 @@ tf.random.set_seed(SEED)
 print("Loading labels from CSV...")
 df = pd.read_csv(LABEL_CSV)
 
+# Optional filtering to remove extreme impedance outliers
+print("Rows before filtering:", len(df))
+
+df = df[
+    (df["InputResistance_ohm"] >= 0) &
+    (df["InputResistance_ohm"] <= 100) &
+    (df["InputReactance_ohm"] >= -40) &
+    (df["InputReactance_ohm"] <= 100)
+].reset_index(drop=True)
+
+print("Rows after filtering:", len(df))
+
 # Targets
-target_cols = ["Gmax_dBi", "S11_dB", "thetaMain_deg"]
+target_cols = ["Gmax_dBi",
+               "S11_dB",
+               "InputResistance_ohm",
+               "InputReactance_ohm"
+]
 
 # Check that columns exist
 print("Columns found in CSV:", df.columns.tolist())
@@ -38,7 +54,7 @@ if missing_cols:
 
 # Extract filenames and targets
 filenames = df["filename"].values
-y = df[target_cols].values.astype(np.float32)  # shape: (N, 3)
+y = df[target_cols].values.astype(np.float32)  # shape: (N, 4)
 
 print("Number of samples:", len(filenames))
 
@@ -113,19 +129,18 @@ def build_cnn_model(input_shape=(128, 128, 1)):
     x = layers.Conv2D(32, (3, 3), padding="same")(inputs)
     x = layers.BatchNormalization()(x)
     x = layers.Activation("relu")(x)
-    x = layers.MaxPooling2D((2, 2))(x)
+    x = layers.MaxPooling2D()(x)
 
     x = layers.Conv2D(64, (3, 3), padding="same")(x)
     x = layers.BatchNormalization()(x)
     x = layers.Activation("relu")(x)
-    x = layers.MaxPooling2D((2, 2))(x)
+    x = layers.MaxPooling2D()(x)
 
     x = layers.Conv2D(128, (3, 3), padding="same")(x)
     x = layers.BatchNormalization()(x)
     x = layers.Activation("relu")(x)
-    x = layers.MaxPooling2D((2, 2))(x)
+    x = layers.MaxPooling2D()(x)
 
-    # Keeps the model image-only/CNN-based and avoids a large Flatten layer
     x = layers.GlobalAveragePooling2D()(x)
 
     x = layers.Dense(
@@ -135,7 +150,13 @@ def build_cnn_model(input_shape=(128, 128, 1)):
     )(x)
     x = layers.Dropout(0.20)(x)
 
-    outputs = layers.Dense(3, activation="linear")(x)
+    x = layers.Dense(
+        64,
+        activation="relu",
+        kernel_regularizer=regularizers.l2(1e-4)
+    )(x)
+
+    outputs = layers.Dense(4, activation="linear")(x)
 
     return models.Model(inputs, outputs)
 
@@ -158,7 +179,7 @@ model.compile(
 # Callbacks
 early_stop = callbacks.EarlyStopping(
     monitor="val_loss",
-    patience=12,
+    patience=8,
     restore_best_weights=True
 )
 
@@ -171,7 +192,7 @@ checkpoint = callbacks.ModelCheckpoint(
 lr_scheduler = callbacks.ReduceLROnPlateau(
     monitor="val_loss",
     factor=0.5,
-    patience=4,
+    patience=5,
     min_lr=1e-6,
     verbose=1
 )
@@ -234,7 +255,8 @@ results_df.to_csv("test_predictions.csv", index=False)
 pretty_names = {
     "Gmax_dBi": "Maximum Gain (dBi)",
     "S11_dB": "S11 (dB)",
-    "thetaMain_deg": "Main Beam Angle (degrees)"
+    "InputResistance_ohm": "Input Resistance (ohm)",
+    "InputReactance_ohm": "Input Reactance (ohm)"
 }
 
 # Scatter plot predicted vs true for each target
