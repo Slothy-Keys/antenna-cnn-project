@@ -1,15 +1,16 @@
 % Generate Patch Antenna Dataset
 % Author: Caolán Corrigan
 % Student Number: 18478834
+%Script to generate dataset for antenna analysis CNN
 
 set(0,'DefaultFigureVisible','off');
 clear; clc; close all;
 
 % Global Settings
 
-f0 = 2.4e9;              % 2.4 GHz design frequency
-N  = 100;                % Number of antennas
-startIdx = 900;          % Begin images and labels at a certain count for adding.
+f0 = 2.4e9;               % 2.4 GHz design frequency
+numAnt = 1000;            % Number of antennas
+startIdx = 0;             % Begin images and labels at a certain count for adding.
 
 imgFolder = 'images_128x128';
 if ~exist(imgFolder, 'dir')
@@ -18,7 +19,7 @@ end
 
 labelFile = 'labels.csv';
 fid = fopen(labelFile, 'w');
-fprintf(fid, 'filename,L(m),W(m),xFeed(m),yFeed(m),Gmax_dBi,S11_dB,thetaMain_deg\n');
+fprintf(fid, 'filename,L(m),W(m),xFeed(m),yFeed(m),Gmax_dBi,S11_dB,InputResistance_ohm,InputReactance_ohm\n');
 fclose(fid);
 
 % Substrate + Baseline Design
@@ -40,35 +41,73 @@ W0 = basePatch.Width;
 fprintf('Baseline patch @ %.2f GHz\n', f0/1e9);
 fprintf('L0 = %.3f mm | W0 = %.3f mm\n', L0*1e3, W0*1e3);
 
-L_min = 0.8 * L0;
-L_max = 1.2 * L0;
-W_min = 0.8 * W0;
-W_max = 1.2 * W0;
+L_min = 0.86 * L0;
+L_max = 1.10 * L0;
+W_min = 0.65 * W0;
+W_max = 1.35 * W0;
 
-% Parallel Pool
+% Main Loop
+savedCount = 0;
+attempt = 0;
 
-if isempty(gcp('nocreate'))
-    parpool;
-end
+while savedCount < numAnt
 
-% Main Parallel Loop
+    attempt = attempt + 1;
 
-parfor i = 1:N
+% Random Geometry Sampling
+    % A mixture of patch shapes is used to create more gain variation:
+    %   - near baseline patches
+    %   - narrower patches
+    %   - wider patches
+    rGeom = rand;
 
-    % Random Geometry Sampling
-    L = L_min + (L_max - L_min)*rand;
-    W = W_min + (W_max - W_min)*rand;
+    if rGeom < 0.40
+        % Near baseline 
+        L = L0 * (0.92 + 0.12*rand);   % 0.92L0 to 1.04L0
+        W = W0 * (0.90 + 0.15*rand);   % 0.90W0 to 1.05W0
 
-    % Feed offset limits
-    maxFeedAllowed  = 0.029;
-    maxFeedPhysical = 0.3 * L;
-    maxFeed = min(maxFeedAllowed, maxFeedPhysical);
+    elseif rGeom < 0.70
+        % Narrower patch 
+        L = L0 * (0.86 + 0.14*rand);   % 0.86L0 to 1.00L0
+        W = W0 * (0.65 + 0.18*rand);   % 0.65W0 to 0.83W0
 
-    xFeed = (rand*2 - 1) * maxFeed;
+    else
+        % Wider patch
+        L = L0 * (0.95 + 0.15*rand);   % 0.95L0 to 1.10L0
+        W = W0 * (1.05 + 0.30*rand);   % 1.05W0 to 1.35W0
+    end
 
-    % Small y-offset for more dataset diversity
-    maxYFeedPhysical = 0.15 * W;
-    yFeed = (rand*2 - 1) * maxYFeedPhysical;
+    % Safety clamp so the patch remains smaller than the 60 mm ground plane
+    L = min(L, 0.90 * 60e-3);
+    W = min(W, 0.90 * 60e-3);
+
+    % Feed Offset Sampling
+    r = rand;
+    if r < 0.35
+        % Mostly poor matching: closer to patch centre
+        xFrac = 0.04 + (0.24 - 0.04)*rand;
+    elseif r < 0.85
+        % Useful matching region found experimentally
+        xFrac = 0.30 + (0.44 - 0.30)*rand;
+    else
+        % Near-edge region for extra bad/good variation
+        xFrac = 0.44 + (0.48 - 0.44)*rand;
+    end
+
+    % Randomly choose left or right side of the patch.
+    if rand < 0.5
+        xFrac = -xFrac;
+    end
+
+    xFeed = xFrac * L;
+
+    % Small y-offset so the feed marker is not always on exactly the same line.
+    % Kept small because large y offsets often create failed designs.
+    yFeed = (-0.06 + 0.12*rand) * W;
+
+    % Keep feed inside the patch area with a small safety margin.
+    xFeed = max(min(xFeed,  0.46*L), -0.46*L);
+    yFeed = max(min(yFeed,  0.46*W), -0.46*W);
 
     % Create Antenna
     ant = patchMicrostrip( ...
@@ -79,37 +118,36 @@ parfor i = 1:N
         'GroundPlaneWidth',  60e-3, ...
         'FeedOffset', [xFeed, yFeed]);
 
-    % S11 at Single Frequency
+    % S11
+    % Also calculate input impedance from S11 using Z0 = 50 ohms.
     try
         s = sparameters(ant, f0);
         s11 = rfparam(s,1,1);
         S11_f0_dB = 20*log10(abs(s11));
+
+        Z0 = 50;
+        Zin = Z0 * (1 + s11) / (1 - s11);
+        InputResistance_ohm = real(Zin);
+        InputReactance_ohm  = imag(Zin);
+
     catch
-        warning('S11 failed at sample %d', i);
+        warning('S11 / impedance failed at attempt %d', attempt);
         continue;
     end
 
-  % Radiation Pattern and Gain
+    % Radiation Pattern and Gain
     try
-        %Gain: coarse 2D global search
         theta_gain = 0:10:180;
         phi_gain   = 0:10:350;
 
         pat_gain = pattern(ant, f0, theta_gain, phi_gain);
         Gmax_dBi = max(pat_gain(:));
 
-        % Calculate theta
-        theta_theta = 0:1:180;
-        phi_theta   = 0;
-
-        pat_theta = pattern(ant, f0, theta_theta, phi_theta);
-        [~, idxTheta] = max(pat_theta);
-        thetaMain = theta_theta(idxTheta);
-
     catch
-        warning('Pattern failed at sample %d', i);
+        warning('Pattern failed at attempt %d', attempt);
         continue;
     end
+   
 
     % Generate 128x128 Geometry Image
     imgSize = 128;
@@ -183,33 +221,24 @@ parfor i = 1:N
     end
 
     % Save image
-    imgName = sprintf('ant_%04d.png', i + startIdx);
+    savedCount = savedCount + 1;
+    imgName = sprintf('ant_%04d.png', savedCount + startIdx);
     imwrite(img, fullfile(imgFolder, imgName));
 
     % Append Labels
-    tempFile = sprintf('temp_label_%04d.txt', i + startIdx);
-    fidTemp = fopen(tempFile,'w');
-    fprintf(fidTemp,'%s,%.6e,%.6e,%.6e,%.6e,%.4f,%.4f,%.2f\n', ...
-        imgName, L, W, xFeed, yFeed, Gmax_dBi, S11_f0_dB, thetaMain);
-    fclose(fidTemp);
+    fidTemp = fopen(labelFile,'a');
+    fprintf(fid,'%s,%.6e,%.6e,%.6e,%.6e,%.4f,%.4f,%.4f,%.4f\n', ...
+        imgName, L, W, xFeed, yFeed, Gmax_dBi, S11_f0_dB, ...
+        InputResistance_ohm, InputReactance_ohm);
+    fclose(fid);
 
-    if mod(i,20)==0
-        fprintf('Generated %d / %d\n', i, N);
-    end
+    fprintf('Saved %04d/%04d | attempt %04d | S11 %.2f dB | Rin %.2f | Xin %.2f | xFeed %.2f mm | yFeed %.2f mm\n', ...
+        savedCount, numAnt, attempt, S11_f0_dB, InputResistance_ohm, InputReactance_ohm, ...
+        xFeed*1e3, yFeed*1e3);
 end
-
-% Merge Temporary Label Files
-fid = fopen(labelFile,'a');
-for i = 1:N
-    tempFile = sprintf('temp_label_%04d.txt', i + startIdx);
-    if exist(tempFile,'file')
-        txt = fileread(tempFile);
-        fprintf(fid,'%s',txt);
-        delete(tempFile);
-    end
-end
-fclose(fid);
 
 fprintf('\nDataset generation complete.\n');
+fprintf('Saved: %d / %d antennas\n', savedCount, numAnt);
+fprintf('Attempts: %d\n', attempt);
 fprintf('Images: %s\n', imgFolder);
 fprintf('Labels: %s\n', labelFile);

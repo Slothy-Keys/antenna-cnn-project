@@ -3,8 +3,9 @@ clear; clc; close all;
 
 % Settings
 f0 = 2.4e9;   % 2.4 GHz
+z0 = 50;      % reference impedance
 
-imgFolder = 'C:\Users\keelo\AntennaProject\single_test_image';
+imgFolder = 'C:\Users\keelo\antenna_cnn\single_test_image';
 if ~exist(imgFolder, 'dir')
     mkdir(imgFolder);
 end
@@ -42,26 +43,25 @@ ant = patchMicrostrip( ...
     'GroundPlaneWidth',  60e-3, ...
     'FeedOffset', [xFeed, yFeed]);
 
-% Calculate S11
-s = sparameters(ant, f0);
+% Calculate S11 and input impedance
+s = sparameters(ant, f0, z0);
 s11 = rfparam(s,1,1);
 S11_f0_dB = 20*log10(abs(s11));
 
-% Calculate Gain and Theta
+Zin = impedance(ant, f0);
+Rin_ohm = real(Zin);
+Xin_ohm = imag(Zin);
+
+% Calculate maximum gain
 theta_gain = 0:10:180;
 phi_gain   = 0:10:350;
 pat_gain = pattern(ant, f0, theta_gain, phi_gain);
 Gmax_dBi = max(pat_gain(:));
 
-theta_theta = 0:1:180;
-phi_theta   = 0;
-pat_theta = pattern(ant, f0, theta_theta, phi_theta);
-[~, idxTheta] = max(pat_theta);
-thetaMain = theta_theta(idxTheta);
-
 fprintf('S11 = %.3f dB\n', S11_f0_dB);
 fprintf('Gmax = %.3f dBi\n', Gmax_dBi);
-fprintf('thetaMain = %.1f deg\n', thetaMain);
+fprintf('Rin = %.3f ohm\n', Rin_ohm);
+fprintf('Xin = %.3f ohm\n', Xin_ohm);
 
 %% Generate 128x128 geometry image
 imgSize = 128;

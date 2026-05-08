@@ -6,7 +6,8 @@ To use the predict_new_antenna file ensure that the patch antenna is 128x128, gr
 ## Outputs
 - Maximum Gain (dBi)
 - S11 (dB)
-- Main Beam Angle (degrees)
+- Input resistance (Ohms)
+- Input reactance (Ohms)
 
 ## Files
 
@@ -27,7 +28,7 @@ Create your environment
 Enter environment
 >conda activate antenna_cnn
 Install packages
->pip install tensorflow numpy matplotlib pandas scikit-learn opencv-python pillow jupyter
+>pip install tensorflow numpy matplotlib pandas scikit-learn opencv-python
 
 Train:
 python train_cnn_main.py

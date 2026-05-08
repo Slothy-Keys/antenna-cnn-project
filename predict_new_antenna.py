@@ -8,7 +8,9 @@ from PIL import Image
 from tensorflow.keras.models import load_model
 
 IMG_SIZE = (128, 128)  # height, width
-
+MODEL_FILE = "best_model.keras"
+Y_MEAN_FILE = "y_mean.npy"
+Y_STD_FILE = "y_std.npy"
 
 def load_image_grayscale(path: str, img_size=(128, 128)) -> np.ndarray:
     img = Image.open(path).convert("L")
@@ -19,19 +21,19 @@ def load_image_grayscale(path: str, img_size=(128, 128)) -> np.ndarray:
 
 
 def predict_new_image(image_path: str) -> np.ndarray:
-    if not os.path.exists("best_model.keras"):
-        raise FileNotFoundError("Could not find best_model.keras")
-    if not os.path.exists("y_mean.npy"):
-        raise FileNotFoundError("Could not find y_mean.npy")
-    if not os.path.exists("y_std.npy"):
-        raise FileNotFoundError("Could not find y_std.npy")
+    if not os.path.exists(MODEL_FILE):
+        raise FileNotFoundError(f"Could not find {MODEL_FILE}")
+    if not os.path.exists(Y_MEAN_FILE):
+        raise FileNotFoundError(f"Could not find {Y_MEAN_FILE}")
+    if not os.path.exists(Y_STD_FILE):
+        raise FileNotFoundError(f"Could not find {Y_STD_FILE}")
     if not os.path.exists(image_path):
         raise FileNotFoundError(f"Could not find image: {image_path}")
 
-    model = load_model("best_model.keras")
+    model = load_model(MODEL_FILE)
     model.summary()
-    y_mean = np.load("y_mean.npy")
-    y_std_safe = np.load("y_std.npy")
+    y_mean = np.load(Y_MEAN_FILE)
+    y_std_safe = np.load(Y_STD_FILE)
 
     img = load_image_grayscale(image_path, IMG_SIZE)
     img = np.expand_dims(img, axis=0)  # (1, 128, 128, 1)
@@ -39,12 +41,13 @@ def predict_new_image(image_path: str) -> np.ndarray:
     pred_std = model.predict(img, verbose=0)
     pred = pred_std * y_std_safe + y_mean
 
-    gmax_dbi, s11_db, theta_main_deg = pred[0]
+    gmax_dbi, s11_db, input_resistance_ohm, input_reactance_ohm = pred[0]
 
     print(f"\nPrediction for: {image_path}")
     print(f"Predicted Maximum Gain (dBi): {gmax_dbi:.3f}")
-    print(f"Predicted S11 (dB): {s11_db:.3f}")
-    print(f"Predicted Main Beam Angle (degrees): {theta_main_deg:.3f}")
+    print(f"Predicted S11 / Return Loss (dB): {s11_db:.3f}")
+    print(f"Predicted Input Resistance (ohm): {input_resistance_ohm:.3f}")
+    print(f"Predicted Input Reactance (ohm): {input_reactance_ohm:.3f}")
 
     return pred[0]
 
