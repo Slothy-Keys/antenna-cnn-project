@@ -63,7 +63,7 @@ fprintf('Gmax = %.3f dBi\n', Gmax_dBi);
 fprintf('Rin = %.3f ohm\n', Rin_ohm);
 fprintf('Xin = %.3f ohm\n', Xin_ohm);
 
-%% Generate 128x128 geometry image
+% Generate 128x128 geometry image
 imgSize = 128;
 img = zeros(imgSize, imgSize, 'uint8');   % black background
 
