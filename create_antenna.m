@@ -135,7 +135,7 @@ imgName = 'new_antenna_1.png';
 imwrite(img, fullfile(imgFolder, imgName));
 
 fprintf('\nSaved image: %s\n', fullfile(imgFolder, imgName));
-fprintf('Use this file with your Python prediction script.\n');
+fprintf('Use this file with Python prediction script.\n');
 
 % Optional: show antenna and image
 figure;
